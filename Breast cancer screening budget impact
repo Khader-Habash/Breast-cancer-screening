@@ -1,0 +1,1598 @@
+library(shiny)
+library(shinythemes)
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(gridExtra)
+
+# Define UI
+ui <- fluidPage(theme = shinytheme("cerulean"),
+                navbarPage(
+                  # theme = "cerulean",  
+                  "Budget Impact Analysis of Cancer Screening",
+                  tabPanel("eligible population",
+                           sidebarPanel(
+                             tags$h3("Input:"),
+  
+                             selectInput("Senerio", "Select Senerio", choices =
+                                           c("40-70 once every  year", "40-60 once every 2 years", "50-65 once every  year",
+                                             "50-65 once every 2 years",">40 once every 2 years","once per one year for age 40-50 and once every 2 years for >50 years"))
+                            ,numericInput("Population growth per year", "Population growth per year:", 0.022,.0001,1),
+                             numericInput("Invitation Rate", "Invitation Rate:", 1,.0001,1),
+                             numericInput("Penetration Rate","Penetration Rate:",0.5,.0001,1),
+                             numericInput("BCCPY","Breast cancer cases per year:",1644,0,16404),
+                             numericInput("Screening sensitivity","Screening sensitivity:",0.8,.0001,1),
+                             numericInput("Screening specificity","Screening specificity:",0.7,.0001,1),
+                             
+                             tags$h3("Number of subjects per year:"),
+                             
+                             numericInput("40-44 year","40-44 years::",304260,.0001,),
+                             numericInput("45-49 year","45-49 year:",254720,.0001,),
+                             numericInput("50-54 year","50-54 year:",192835,.0001,),
+                             numericInput("55-59 year","55-59 year:",139105,.0001,),
+                             numericInput("60-64 year","60-64 year:",95820,.0001,),
+                             numericInput("65+ year","65+ year:",206075,.0001,),
+                  
+                            tags$h3("5-year overall survival:"),
+                            numericInput("Stage zero DCIS","Stage zero DCIS:",0.96,.0001,),
+                            numericInput("Stage I","Stage I:",0.96,.0001,),
+                            numericInput("Stage II","Stage II:",0.913,.0001,),
+                            numericInput("Stage III","Stage III:",0.757,.0001,),
+                            numericInput("Stage IV","Stage IV:",0.315,.0001,),
+                            
+                           )# sidebarPanel
+                             
+                           , 
+                           
+                           mainPanel(
+                             tabsetPanel(
+                               tabPanel("eligeble population",h4("Eligible Population according to the new scenario"),
+                                        tableOutput("elii_pop"),h4("Eligible Population according to the Curent scenario"),
+                                        tableOutput("bassen_data")),
+                               
+                               tabPanel("Screened",h4("Screened Population according to the new scenario"),
+                                        tableOutput("eli_pop"),h4("Screened Population according to the Curent scenario"),
+                                        tableOutput("bassens_data")),
+                               
+                               tabPanel("Cancer Patients",h4("Distribution of Cancer cases per age according to the Curent scenario"),
+                                        tableOutput("diagnosed_current"),h4("Distribution of Cancer cases per age according to the new scenario"),
+                                        tableOutput("New_dignosed"),h4("Distribution of Cancer cases per stage according to the Curent scenario"),
+                                        tableOutput("curent_stage"),h4("Distribution of Cancer cases per stage according to the new scenario"),
+                                        tableOutput("new_stage")),
+                              )
+                           )# mainPanel
+                        )
+                           
+                           
+                  , # Navbar 1, tabPanel
+                
+                  tabPanel("Screening Cost",
+                            sidebarPanel(
+                             tags$h3("Cost Input:"),width = 4,
+                           
+                             numericInput("Screening","Screening:", 0,0,100000000),
+                             numericInput("Additional diagnostic mammogram ","Additional diagnostic mammogram :",0,100000000),
+                             numericInput("Additional ultrasound","Additional ultrasound:",0,0,100000000),
+                             numericInput("MRI","MRI:",0,.0001,),
+                             numericInput("MRI breast review","MRI breast review:",0,0,100000000),
+                             numericInput("Mammogram review","Mammogram review:",0,.0001,),
+                             numericInput("biopsy","biopsy:",0,.0001,),
+                             tags$h3("initial treatment cost Per Stage:"),
+                             numericInput("Treatment of Stage zero DCIS","zero DCIS:",0,.0001,),
+                             numericInput("Treatment of Stage I","Stage I:",0,.0001,),
+                             numericInput("Treatment of Stage II","Stage II:",0,.0001,),
+                             numericInput("Treatment of Stage III","Stage III:",0,.0001,),
+                             numericInput("Treatment of Stage IV","Stage IV:",0,.0001,),
+                             tags$h3("Follow-up treatment cost Per Stage:"),
+                             numericInput("follow Stage zero DCIS","zero DCIS:",0,.0001,),
+                             numericInput("follow Stage I","Stage I:",0,.0001,),
+                             numericInput("follow Stage II","Stage II:",0,.0001,),
+                             numericInput("follow Stage III","Stage III:",0,.0001,),
+                             numericInput("follow Stage IV","Stage IV:",0,.0001,),
+                             numericInput("%of patient need additional diagnosis","%of patient need additional diagnosis:",0,.0001,1),
+                             numericInput("%of patient needs MRI","%of patient needs MRI:",0,.0001,1),
+                             numericInput("%of patient needs biopsy","%of patient needs biopsy:",0,.0001,1),
+                             ),
+                            
+                  
+                           mainPanel(
+                             tabsetPanel(
+                               tabPanel("screening cost",tableOutput("screening_cost_year"),h4("Treatment cost of diagnosed patients Per stage"),
+                                        tableOutput("initial_treatment_cost")),
+                               tabPanel("new screening cost",tableOutput("screening_cost_year_new1"),h4("Treatment cost of diagnosed patients Per stage"),
+                                        tableOutput("new_treatment_cost")),
+                               tabPanel("Follow-up Cost",h4("Cost of follow-up Per stage current scenario "),
+                                        tableOutput("matrx"),h4("Cost of follow-up Per stage new scenario "),
+                                        tableOutput("Follow_cost_new")),
+                                                                ), # mainPanel2
+                                ), #tabpanel 2
+                  ),
+                  
+                  tabPanel("Results",
+                           mainPanel(
+                             
+                             h4("Change in Screening cost"),plotOutput("histcomb"),
+                             h4("Change in Treatment cost"),plotOutput("total"),
+                             h4("Treatment cost Current scenario"),tableOutput("candist"),
+                             h4("Treatment cost new scenario"),tableOutput("candistnew")
+                             ))
+                )#Navbar
+                
+                
+                  
+                )#Fluidpage 
+
+
+# Define server function  
+server <- function(input, output) {
+  
+# predicted number of subjects per year
+  
+  totpop_data <- reactive({
+    data.frame(
+      year1 = c(input$`40-44 year`, input$`45-49 year`, input$`50-54 year`, input$`55-59 year`, input$`60-64 year`, input$`65+ year`,(input$`60-64 year`-(input$`60-64 year`*0.0429603)))* (1+input$`Population growth per year`),
+      year2 = c(input$`40-44 year`, input$`45-49 year`, input$`50-54 year`, input$`55-59 year`, input$`60-64 year`, input$`65+ year`,(input$`60-64 year`-(input$`60-64 year`*0.0429603))) * (1+input$`Population growth per year`)^2,
+      year3 = c(input$`40-44 year`, input$`45-49 year`, input$`50-54 year`, input$`55-59 year`, input$`60-64 year`, input$`65+ year`,(input$`60-64 year`-(input$`60-64 year`*0.0429603))) * (1+input$`Population growth per year`)^3,
+      year4 = c(input$`40-44 year`, input$`45-49 year`, input$`50-54 year`, input$`55-59 year`, input$`60-64 year`, input$`65+ year`,(input$`60-64 year`-(input$`60-64 year`*0.0429603))) * (1+input$`Population growth per year`)^4,
+      year5 = c(input$`40-44 year`, input$`45-49 year`, input$`50-54 year`, input$`55-59 year`, input$`60-64 year`, input$`65+ year`,(input$`60-64 year`-(input$`60-64 year`*0.0429603))) * (1+input$`Population growth per year`)^5
+    )
+  })
+  
+  ### Base Case scenario eligible population above 40 years every year
+  
+  bassen_data <- reactive({
+    
+    year1_sum <- round(sum(totpop_data()$year1[c(1, 2, 3, 4, 5, 6)]),digits = 0)
+    year2_sum <- round(sum(totpop_data()$year2[c(1, 2, 3, 4, 5, 6)]),digits = 0)
+    year3_sum <- round(sum(totpop_data()$year3[c(1, 2, 3, 4, 5, 6)]),digits = 0)
+    year4_sum <- round(sum(totpop_data()$year4[c(1, 2, 3, 4, 5, 6)]),digits = 0)
+    year5_sum <- round(sum(totpop_data()$year5[c(1, 2, 3, 4, 5, 6)]),digits = 0)
+    
+      list(year1 = year1_sum, year2 = year2_sum, year3 = year3_sum, year4 = year4_sum, year5 = year5_sum)
+  })  
+  
+  
+  
+  ### first scenario eligible population from 40-70 ever years
+  firsen_data <- reactive({
+    
+      year1_sum <- round(sum(totpop_data()$year1[c(1, 2, 3,4,5,7)]),digits = 0)
+      year2_sum <- round(sum(totpop_data()$year2[c(1, 2, 3,4,5,7)]),digits = 0)
+      year3_sum <- round(sum(totpop_data()$year3[c(1, 2, 3,4,5,7)]),digits = 0)
+      year4_sum <- round(sum(totpop_data()$year4[c(1, 2, 3,4,5,7)]),digits = 0)
+      year5_sum <- round(sum(totpop_data()$year5[c(1, 2, 3,4,5,7)]),digits = 0)
+      
+      list(year1 = year1_sum, year2 = year2_sum, year3 = year3_sum, year4 = year4_sum, year5 = year5_sum)
+  })
+  
+  ### Second scenario eligible population from 40-60 every 2 years
+  secsen_data <- reactive({
+    
+      year1_sum = round(sum(totpop_data()$year1[c(1, 2, 3,4)]),digits = 0)
+      year2_sum = round(sum(totpop_data()$year2[c(1, 2, 3,4)]),digits = 0)
+      year3_sum = round(sum(totpop_data()$year3[c(1, 2, 3,4)]),digits = 0)
+      year4_sum = round(sum(totpop_data()$year4[c(1, 2, 3,4)]),digits = 0)
+      year5_sum = round(sum(totpop_data()$year5[c(1, 2, 3,4)]),digits = 0)
+      
+      list(year1 = year1_sum, year2 = year2_sum, year3 = year3_sum, year4 = year4_sum, year5 = year5_sum)
+  })
+  
+  ### third scenario eligible population from 50-65 every year 
+  thisen_data <- reactive({
+    
+    year1_sum  = round(sum(totpop_data()$year1[c(3,4,5)]),digits = 0)
+    year2_sum  = round(sum(totpop_data()$year2[c(3,4,5)]),digits = 0)
+    year3_sum  = round(sum(totpop_data()$year3[c(3,4,5)]),digits = 0)
+    year4_sum  = round(sum(totpop_data()$year4[c(3,4,5)]),digits = 0)
+    year5_sum  = round(sum(totpop_data()$year5[c(3,4,5)]),digits = 0)
+      
+      list(year1 = year1_sum, year2 = year2_sum, year3 = year3_sum, year4 = year4_sum, year5 = year5_sum)
+  }) 
+  
+  ### forth scenario eligible population from 50-65 every 2 year
+  forsen_data <- reactive({
+    
+    year1_sum  = round(sum(totpop_data()$year1[c(3,4,5)]),digits = 0)
+    year2_sum  = round(sum(totpop_data()$year2[c(3,4,5)]),digits = 0)
+    year3_sum  = round(sum(totpop_data()$year3[c(3,4,5)]),digits = 0)
+    year4_sum  = round(sum(totpop_data()$year4[c(3,4,5)]),digits = 0)
+    year5_sum  = round(sum(totpop_data()$year5[c(3,4,5)]),digits = 0)
+      
+      list(year1 = year1_sum, year2 = year2_sum, year3 = year3_sum, year4 = year4_sum, year5 = year5_sum)
+    
+  })  
+  
+  ### fifth scenario eligible population from >40 every 2 year
+  
+  fifsen_data <- reactive({
+    
+    year1_sum = round(sum(totpop_data()$year1[c(1, 2, 3,4,5,6)]),digits = 0)
+    year2_sum = round(sum(totpop_data()$year2[c(1, 2, 3,4,5,6)]),digits = 0)
+    year3_sum = round(sum(totpop_data()$year3[c(1, 2, 3,4,5,6)]),digits = 0)
+    year4_sum = round(sum(totpop_data()$year4[c(1, 2, 3,4,5,6)]),digits = 0)
+    year5_sum = round(sum(totpop_data()$year5[c(1, 2, 3,4,5,6)]),digits = 0)
+      
+      list(year1 = year1_sum, year2 = year2_sum, year3 = year3_sum, year4 = year4_sum, year5 = year5_sum)
+  })  
+  
+  ### sixth scenario eligible population once per one year for age 40-50 and once every 2 years for >50 years
+  
+  sixsen_data <- reactive({
+    
+      year1_sum40 = round(sum(totpop_data()$year1[c(1, 2)]),digits = 0)
+      year2_sum40 = round(sum(totpop_data()$year2[c(1, 2)]),digits = 0)
+      year3_sum40 = round(sum(totpop_data()$year3[c(1, 2)]),digits = 0)
+      year4_sum40 = round(sum(totpop_data()$year4[c(1, 2)]),digits = 0)
+      year5_sum40 = round(sum(totpop_data()$year5[c(1, 2)]),digits = 0)
+      year1_sum50 = round(sum(totpop_data()$year1[c(3, 4, 5, 6)]),digits = 0)
+      year2_sum50 = round(sum(totpop_data()$year2[c(3, 4, 5, 6)]),digits = 0)
+      year3_sum50 = round(sum(totpop_data()$year3[c(3, 4, 5, 6)]),digits = 0)
+      year4_sum50 = round(sum(totpop_data()$year4[c(3, 4, 5, 6)]),digits = 0)
+      year5_sum50 = round(sum(totpop_data()$year5[c(3, 4, 5, 6)]),digits = 0)
+    
+      data.frame(
+        
+        year1_sum40,
+        year2_sum40,
+        year3_sum40, 
+        year4_sum40, 
+        year5_sum40, 
+        year1_sum50, 
+        year2_sum50,
+        year3_sum50,
+        year4_sum50,
+        year5_sum50
+        
+      )
+    
+  })
+  
+
+  ### Base Case scenario Screened population above 40 years every year
+  
+  bassens_data <- reactive({
+    
+      year1 = round(bassen_data()$year1*0.035,digits = 0)
+      year2 = round(bassen_data()$year2*0.035,digits = 0)
+      year3 = round(bassen_data()$year3*0.035,digits = 0)
+      year4 = round(bassen_data()$year4*0.035,digits = 0)
+      year5 = round(bassen_data()$year5*0.035,digits = 0)
+      
+      data.frame(
+        year1,
+        year2,
+        year3,
+        year4,
+        year5
+        
+      )
+
+  })  
+  
+  
+  
+  ### first scenario Screened population from 40-70 ever years
+  firsens1_data <- reactive({
+    
+    year1 = round(firsen_data()$year1*input$`Invitation Rate`*input$`Penetration Rate`,digits = 0)
+    year1# Return the value, not the reactive object
+      
+  })
+  firsens2_data <- reactive({
+    
+    year2 = round(firsen_data()$year2*input$`Invitation Rate`*input$`Penetration Rate`,digits = 0)
+    year2
+        
+      })
+      
+      firsens3_data <- reactive({
+        
+    year3 = round(firsen_data()$year3*input$`Invitation Rate`*input$`Penetration Rate`,digits = 0)
+    year3
+        
+      })
+      
+      firsens4_data <- reactive({
+        
+    year4 = round(firsen_data()$year4*input$`Invitation Rate`*input$`Penetration Rate`,digits = 0)
+    year4
+        
+      })
+      
+      firsens5_data <- reactive({
+        
+     year5 = round(firsen_data()$year5*input$`Invitation Rate`*input$`Penetration Rate`,digits = 0)
+     year5
+        
+      })
+      
+      
+  
+  firsens_data <- reactive({
+    data.frame(
+      year1 = firsens1_data(),
+      year2 = firsens2_data(),
+      year3 = firsens3_data(),
+      year4 = firsens4_data(),
+      year5 = firsens5_data()
+    )
+  })
+  ### Second scenario Screened population from 40-60 every 2 years
+  
+  secsens1_data <- reactive({
+    year1 = round(secsen_data()$year1 * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year1  # Return the value, not the reactive object
+  })
+  
+  secsens2_data <- reactive({
+    year2 = round((secsen_data()$year2 - secsens1_data()) * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year2
+  })
+  
+  secsens3_data <- reactive({
+    year3 = round((secsen_data()$year3 - secsens2_data()) * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year3
+  })
+  
+  secsens4_data <- reactive({
+    year4 = round((secsen_data()$year4 - secsens3_data()) * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year4
+  })
+  
+  secsens5_data <- reactive({
+    year5 = round((secsen_data()$year5 - secsens4_data()) * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year5
+  })
+  
+  secsens_data <- reactive({
+    data.frame(
+      year1 = secsens1_data(),
+      year2 = secsens2_data(),
+      year3 = secsens3_data(),
+      year4 = secsens4_data(),
+      year5 = secsens5_data()
+    )
+  })
+  ### third scenario Screened population from 50-65 every year 
+  thisens1_data <- reactive({
+    
+      year1 = round(thisen_data()$year1*input$`Invitation Rate`*input$`Penetration Rate`,digits = 0)
+      year2 = round(thisen_data()$year2*input$`Invitation Rate`*input$`Penetration Rate`,digits = 0)
+      year3 = round(thisen_data()$year3*input$`Invitation Rate`*input$`Penetration Rate`,digits = 0)
+      year4 = round(thisen_data()$year4*input$`Invitation Rate`*input$`Penetration Rate`,digits = 0)
+      year5 = round(thisen_data()$year5*input$`Invitation Rate`*input$`Penetration Rate`,digits = 0)
+    
+    list(year1 = year1, year2 = year2, year3 = year3, year4 = year4, year5 = year5)
+  }) 
+
+  thisens_data <- reactive({
+    data.frame(
+      year1 = thisens1_data()$year1,
+      year2 = thisens1_data()$year2,
+      year3 = thisens1_data()$year3,
+      year4 = thisens1_data()$year4,
+      year5 = thisens1_data()$year5
+    )
+  })  
+  
+  
+  ### forth scenario Screened population from 50-65 every 2 year
+  
+  forsens1_data <- reactive({
+    year1 = round(forsen_data()$year1 * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year1  # Return the value, not the reactive object
+  })
+  
+  forsens2_data <- reactive({
+    year2 = round((forsen_data()$year2 - forsens1_data()) * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year2
+  })
+  
+  forsens3_data <- reactive({
+    year3 = round((forsen_data()$year3 - forsens2_data()) * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year3
+  })
+  
+  forsens4_data <- reactive({
+    year4 = round((forsen_data()$year4 - forsens3_data()) * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year4
+  })
+  
+  forsens5_data <- reactive({
+    year5 = round((forsen_data()$year5 - forsens4_data()) * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year5
+  })
+  
+  forsens_data <- reactive({
+    data.frame(
+      year1 = forsens1_data(),
+      year2 = forsens2_data(),
+      year3 = forsens3_data(),
+      year4 = forsens4_data(),
+      year5 = forsens5_data()
+    )
+  })  
+  
+  ### fifth scenario Screened population from >40 every 2 year
+  
+  fifsens1_data <- reactive({
+    year1 = round(fifsen_data()$year1 * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year1  # Return the value, not the reactive object
+  })
+  
+  fifsens2_data <- reactive({
+    year2 = round((fifsen_data()$year2 - fifsens1_data()) * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year2
+  })
+  
+  fifsens3_data <- reactive({
+    year3 = round((fifsen_data()$year3 - fifsens2_data()) * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year3
+  })
+  
+  fifsens4_data <- reactive({
+    year4 = round((fifsen_data()$year4 - fifsens3_data()) * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year4
+  })
+  
+  fifsens5_data <- reactive({
+    year5 = round((fifsen_data()$year5 - fifsens4_data()) * input$`Invitation Rate` * input$`Penetration Rate`,digits = 0)
+    year5
+  })
+  
+  fifsens_data <- reactive({
+    data.frame(
+      year1 = fifsens1_data(),
+      year2 = fifsens2_data(),
+      year3 = fifsens3_data(),
+      year4 = fifsens4_data(),
+      year5 = fifsens5_data()
+    )
+  }) 
+  ### sixth scenario Screened population once per one year for age 40-50 and once every 2 years for >50 years
+  
+  # Calculate year 1
+  
+  sixsens1_data <- reactive({
+    
+      year1_50 = sixsen_data()$year1_sum50 * input$`Invitation Rate`*input$`Penetration Rate`
+      year1_40 = sixsen_data()$year1_sum40 * input$`Invitation Rate`*input$`Penetration Rate`
+      year1 = round(year1_50 + year1_40,digits = 0)
+      
+      data.frame(
+        year1_50,
+        year1_40,
+        year1
+      )
+    
+  })
+  
+  # Calculate year 2
+  sixsens2_data <- reactive({
+
+      year2_50 = (sixsen_data()$year2_sum50 - sixsens1_data()$year1_50) * input$`Invitation Rate`*input$`Penetration Rate`
+      year2_40 = sixsen_data()$year2_sum40 * input$`Invitation Rate`*input$`Penetration Rate`
+      year2 = round(year2_50 + year2_40,digits = 0)
+      
+      data.frame(
+        
+        year2_50,
+        year2_40,
+        year2
+      )
+    
+  })
+  
+  # Calculate year 3
+  sixsens3_data <- reactive({
+
+      year3_50 = (sixsen_data()$year3_sum50 - sixsens2_data()$year2_50) * input$`Invitation Rate`*input$`Penetration Rate`
+      year3_40 = sixsen_data()$year3_sum40 * input$`Invitation Rate`*input$`Penetration Rate`
+      year3 = round(year3_50 + year3_40,digits = 0)
+      
+      data.frame(
+        
+        year3_50,
+        year3_40,
+        year3
+      )
+    
+  })
+  
+  # Calculate year 4
+  sixsens4_data <- reactive({
+
+      year4_50 = (sixsen_data()$year4_sum50 - sixsens3_data()$year3_50) * input$`Invitation Rate`*input$`Penetration Rate`
+      year4_40 = sixsen_data()$year4_sum40 * input$`Invitation Rate`*input$`Penetration Rate`
+      year4 = round(year4_50 + year4_40,digits = 0)
+      
+      data.frame(
+        
+        year4_50,
+        year4_40,
+        year4
+      )
+    
+  })
+  
+  # Calculate year 5
+  sixsens5_data <- reactive({
+
+      year5_50 = (sixsen_data()$year5_sum50 - sixsens4_data()$year4_50) * input$`Invitation Rate`*input$`Penetration Rate`
+      year5_40 = sixsen_data()$year5_sum40 * input$`Invitation Rate`*input$`Penetration Rate`
+      year5 = round(year5_50 + year5_40,digits = 0)
+      
+      data.frame(
+        
+        year5_50,
+        year5_40,
+        year5
+      )
+    
+  })
+  
+  # Combine the results into a final data frame
+  sixsens_data <- reactive({
+    data.frame(
+      year1 = sixsens1_data()$year1,
+      year2 = sixsens2_data()$year2,
+      year3 = sixsens3_data()$year3,
+      year4 = sixsens4_data()$year4,
+      year5 = sixsens5_data()$year5
+    )
+  })
+  
+  
+  ### Predicted Number of cancer patient per age group ###
+  
+  #probability of cancer in Jordan per age group
+  
+  Cancer_patient_age <- reactive({
+    data.frame(
+      Age_Group = c("40-44", "45-49", "50-54", "55-59", "60-64", ">65", "65-69"),
+      Probability = c(0.000796, 0.001043, 0.001403, 0.001202, 0.001774, 0.001521, 0.001742)
+    )
+  })
+  
+  #number of patient diagnosed each year
+  
+  Cancer_patient <- reactive({
+    totpop_data_df <- totpop_data()
+    cancer_age_df <- Cancer_patient_age()
+    
+    data.frame(
+      Age_Group = cancer_age_df$Age_Group,
+      year1 = totpop_data_df$year1 * cancer_age_df$Probability,
+      year2 = totpop_data_df$year2 * cancer_age_df$Probability,
+      year3 = totpop_data_df$year3 * cancer_age_df$Probability,
+      year4 = totpop_data_df$year4 * cancer_age_df$Probability,
+      year5 = totpop_data_df$year5 * cancer_age_df$Probability
+    )
+  })
+ 
+  
+  #### New Subjects per year
+  
+  New_subjects <- reactive({
+    
+        age = c("40-44", "45-49", "50-54", "55-59", "60-64", "65+ year", "65-69")  
+        year_2025 <- (totpop_data()$year2 - totpop_data()$year1* input$`Invitation Rate`*input$`Penetration Rate`)
+        year_2026 <- (totpop_data()$year3 - totpop_data()$year2* input$`Invitation Rate`*input$`Penetration Rate`)
+        year_2027 <- (totpop_data()$year4 - totpop_data()$year3* input$`Invitation Rate`*input$`Penetration Rate`)
+        year_2028 <- (totpop_data()$year5 - totpop_data()$year4* input$`Invitation Rate`*input$`Penetration Rate`)
+        
+        data.frame(
+          age,
+          year_2025,
+          year_2026,
+          year_2027,
+          year_2028
+                  )
+        })
+  
+  ### New cases per year
+  
+  New_case<- reactive({
+    
+    age = c("40-44", "45-49", "50-54", "55-59", "60-64", "65+ year", "65-69")
+    year_2025 <- New_subjects()$year_2025 * Cancer_patient_age()$Probability
+    year_2026 <- New_subjects()$year_2026 * Cancer_patient_age()$Probability
+    year_2027 <- New_subjects()$year_2027 * Cancer_patient_age()$Probability
+    year_2028 <- New_subjects()$year_2028 * Cancer_patient_age()$Probability
+    
+    data.frame(
+      age,
+      year_2025,
+      year_2026,
+      year_2027,
+      year_2028
+    )
+    
+  })
+  
+  
+  ### Patient diagnosed with cancer current situation
+  
+  diagnosed_current <- reactive({
+    
+    year1 <- c(Cancer_patient()$year1[c(1,2,3,4,5,6)]*0.035*input$`Screening sensitivity`,sum(Cancer_patient()$year1[c(1,2,3,4,5,6)]*0.035)*input$`Screening sensitivity`)
+    year2 <- c(Cancer_patient()$year2[c(1,2,3,4,5,6)]*0.035*input$`Screening sensitivity`,sum(Cancer_patient()$year2[c(1,2,3,4,5,6)]*0.035)*input$`Screening sensitivity`)
+    year3 <- c(Cancer_patient()$year3[c(1,2,3,4,5,6)]*0.035*input$`Screening sensitivity`,sum(Cancer_patient()$year3[c(1,2,3,4,5,6)]*0.035)*input$`Screening sensitivity`)
+    year4 <- c(Cancer_patient()$year4[c(1,2,3,4,5,6)]*0.035*input$`Screening sensitivity`,sum(Cancer_patient()$year4[c(1,2,3,4,5,6)]*0.035)*input$`Screening sensitivity`)
+    year5 <- c(Cancer_patient()$year5[c(1,2,3,4,5,6)]*0.035*input$`Screening sensitivity`,sum(Cancer_patient()$year5[c(1,2,3,4,5,6)]*0.035)*input$`Screening sensitivity`)
+    
+    data.frame(
+     `age group` = c("40-44", "45-49", "50-54", "55-59", "60-64", "65+ year", "total"),
+      year1,
+      year2,
+      year3,
+      year4,
+      year5
+     
+      
+    )
+    
+  })
+  
+  ### Patient diagnosed with cancer in each scenario
+  
+  New_dignosed <- reactive({
+    
+    year1 <-input$`Screening sensitivity` * input$`Invitation Rate`*input$`Penetration Rate`* switch(input$Senerio,
+                                 "40-70 once every  year"   = c(Cancer_patient()$year1[c(1,2,3,4,5,NA,7)],sum(Cancer_patient()$year1[c(1,2,3,4,5,7)])),
+                                 "40-60 once every 2 years" = c(Cancer_patient()$year1[c(1,2,3,4,NA,NA,NA)],sum(Cancer_patient()$year1[c(1,2,3,4)])),
+                                 "50-65 once every  year"   = c(Cancer_patient()$year1[c(NA,NA,3,4,5,NA,NA)],sum(Cancer_patient()$year1[c(3,4,5)])),
+                                 "50-65 once every 2 years" = c(Cancer_patient()$year1[c(NA,NA,3,4,5,NA,NA)],sum(Cancer_patient()$year1[c(3,4,5)])),
+                                 ">40 once every 2 years"   = c(Cancer_patient()$year1[c(1,2,3,4,5,6,NA)],sum(Cancer_patient()$year1[c(1,2,3,4,5,6)])),
+                                 "once per one year for age 40-50 and once every 2 years for >50 years" = 
+                                                              c(Cancer_patient()$year1[c(1,2,3,4,5,6,NA)],sum(Cancer_patient()$year1[c(1,2,3,4,5,6)])),
+                                 NA  # Handle default case with NA
+                               )
+
+    year2 <-input$`Screening sensitivity` * input$`Invitation Rate`*input$`Penetration Rate`* switch(input$Senerio,
+                                 "40-70 once every  year"   = c(Cancer_patient()$year2[c(1,2,3,4,5,NA,7)],sum(Cancer_patient()$year2[c(1,2,3,4,5,7)])),
+                                 "40-60 once every 2 years" = c(New_case()$year_2025[c(1,2,3,4,NA,NA,NA)],sum(New_case()$year_2025[c(1,2,3,4)])),
+                                 "50-65 once every  year"   = c(Cancer_patient()$year2[c(NA,NA,3,4,5,NA,NA)],sum(Cancer_patient()$year2[c(3,4,5)])),
+                                 "50-65 once every 2 years" = c(New_case()$year_2025[c(NA,NA,3,4,5,NA,NA)],sum(New_case()$year_2025[c(3,4,5)])),
+                                 ">40 once every 2 years"   = c(New_case()$year_2025[c(1,2,3,4,5,6,NA)],sum(New_case()$year_2025[c(1,2,3,4,5,6)])),
+                                 "once per one year for age 40-50 and once every 2 years for >50 years" = 
+                                 c(Cancer_patient()$year2[c(1,2)],c(New_case()$year_2025[c(3,4,5,6,NA)]),(sum(Cancer_patient()$year2[c(1,2)])+sum(New_case()$year_2025[c(3,4,5,6)]))),
+                                 NA  # Handle default case with NA
+    )
+    year3 <-input$`Screening sensitivity` * input$`Invitation Rate`*input$`Penetration Rate`* switch(input$Senerio,
+                                                                                                     "40-70 once every  year"   = c(Cancer_patient()$year3[c(1,2,3,4,5,NA,7)],sum(Cancer_patient()$year3[c(1,2,3,4,5,7)])),
+                                                                                                     "40-60 once every 2 years" = c(Cancer_patient()$year3[c(1,2,3,4,NA,NA,NA)],sum(Cancer_patient()$year3[c(1,2,3,4)])),
+                                                                                                     "50-65 once every  year"   = c(Cancer_patient()$year3[c(NA,NA,3,4,5,NA,NA)],sum(Cancer_patient()$year3[c(3,4,5)])),
+                                                                                                     "50-65 once every 2 years" = c(Cancer_patient()$year3[c(NA,NA,3,4,5,NA,NA)],sum(Cancer_patient()$year3[c(3,4,5)])),
+                                                                                                     ">40 once every 2 years"   = c(Cancer_patient()$year3[c(1,2,3,4,5,6,NA)],sum(Cancer_patient()$year3[c(1,2,3,4,5,6)])),
+                                                                                                     "once per one year for age 40-50 and once every 2 years for >50 years" = 
+                                                                                                       c(Cancer_patient()$year1[c(1,2,3,4,5,6,NA)],sum(Cancer_patient()$year1[c(1,2,3,4,5,6)])),
+                                                                                                     NA  # Handle default case with NA
+    )
+    
+    year4 <-input$`Screening sensitivity` * input$`Invitation Rate`*input$`Penetration Rate`* switch(input$Senerio,
+                                                                                                     "40-70 once every  year"   = c(Cancer_patient()$year4[c(1,2,3,4,5,NA,7)],sum(Cancer_patient()$year4[c(1,2,3,4,5,7)])),
+                                                                                                     "40-60 once every 2 years" = c(New_case()$year_2027[c(1,2,3,4,NA,NA,NA)],sum(New_case()$year_2027[c(1,2,3,4)])),
+                                                                                                     "50-65 once every  year"   = c(Cancer_patient()$year4[c(NA,NA,3,4,5,NA,NA)],sum(Cancer_patient()$year4[c(3,4,5)])),
+                                                                                                     "50-65 once every 2 years" = c(New_case()$year_2027[c(NA,NA,3,4,5,NA,NA)],sum(New_case()$year_2027[c(3,4,5)])),
+                                                                                                     ">40 once every 2 years"   = c(New_case()$year_2027[c(1,2,3,4,5,6,NA)],sum(New_case()$year_2027[c(1,2,3,4,5,6)])),
+                                                                                                     "once per one year for age 40-50 and once every 2 years for >50 years" = 
+                                                                                                       c(Cancer_patient()$year4[c(1,2)],c(New_case()$year_2027[c(3,4,5,6,NA)]),(sum(Cancer_patient()$year4[c(1,2)])+sum(New_case()$year_2027[c(3,4,5,6)]))),
+                                                                                                     NA  # Handle default case with NA
+    )
+    
+    year5 <-input$`Screening sensitivity` * input$`Invitation Rate`*input$`Penetration Rate`* switch(input$Senerio,
+                                                                                                     "40-70 once every  year"   = c(Cancer_patient()$year5[c(1,2,3,4,5,NA,7)],sum(Cancer_patient()$year5[c(1,2,3,4,5,7)])),
+                                                                                                     "40-60 once every 2 years" = c(Cancer_patient()$year5[c(1,2,3,4,NA,NA,NA)],sum(Cancer_patient()$year5[c(1,2,3,4)])),
+                                                                                                     "50-65 once every  year"   = c(Cancer_patient()$year5[c(NA,NA,3,4,5,NA,NA)],sum(Cancer_patient()$year5[c(3,4,5)])),
+                                                                                                     "50-65 once every 2 years" = c(Cancer_patient()$year5[c(NA,NA,3,4,5,NA,NA)],sum(Cancer_patient()$year5[c(3,4,5)])),
+                                                                                                     ">40 once every 2 years"   = c(Cancer_patient()$year5[c(1,2,3,4,5,6,NA)],sum(Cancer_patient()$year5[c(1,2,3,4,5,6)])),
+                                                                                                     "once per one year for age 40-50 and once every 2 years for >50 years" = 
+                                                                                                       c(Cancer_patient()$year5[c(1,2,3,4,5,6,NA)],sum(Cancer_patient()$year5[c(1,2,3,4,5,6)])),
+                                                                                                     NA  # Handle default case with NA
+    )
+    
+    
+ 
+  
+  data.frame(
+    `age group` = c("40-44", "45-49", "50-54", "55-59", "60-64", "65+ year","65-70", "total"),
+     year1,
+     year2,
+     year3,
+     year4,
+     year5
+  )
+  })
+  
+### Stages Break Down
+  
+  stage<- reactive({
+    data.frame(
+      Scenarios=c("zero DCIS","Stage I","Stage II","Stage III","Stage IV"),
+      current_situation=c(0.02,0.388,0.264,0.185,0.143), # current situation
+      Senario1=c(0.02,0.388,0.264,0.185,0.143), ## 40-70, annual attendance rate 3.5%
+      Senario2=c(0.044,0.45,0.238,0.055,0.112), ## 40-60, once every 2 years attendance rate 50%
+      Senario3=c(0.068,0.475,0.221,0.139,0.097), ## 50-65, annual attendance rate 50%
+      Senario4=c(0.05,0.446,0.236,0.155,0.111), ##50-65, once every 2 years, attendance rate 50%
+      Senario5=c(0.083,0.497,0.21,0.127,0.084), ##40-70, once per 2 years 50%
+      Senario6=c(0.088,0.509,0.20,0.12,0.079) ##once per one year for age 40-50 and once every 2 years for >50 years
+    )
+  })
+  
+  ### Stages Break Down current
+  
+  curent_stage<- reactive({ #current scenario stage break down
+    
+    year1 = c(stage()$current_situation*diagnosed_current()$year1[7])
+    year2 = c(stage()$current_situation*diagnosed_current()$year2[7])
+    year3 = c(stage()$current_situation*diagnosed_current()$year3[7])
+    year4 = c(stage()$current_situation*diagnosed_current()$year4[7])
+    year5 = c(stage()$current_situation*diagnosed_current()$year5[7])
+    
+    data.frame(
+      stage()$Scenarios,
+      year1,
+      year2,
+      year3,
+      year4,
+      year5
+    )
+    
+  })
+  
+  ### Stages Break Down new
+  
+  new_stage <-reactive({
+  
+    year1 = New_dignosed()$year1[8] * switch(input$Senerio,
+                                                  "40-70 once every  year"   = stage()$Senario1,
+                                                  "40-60 once every 2 years" = stage()$Senario2,
+                                                  "50-65 once every  year"   = stage()$Senario3,
+                                                  "50-65 once every 2 years" = stage()$Senario4,
+                                                  ">40 once every 2 years"   = stage()$Senario5,
+                                                  "once per one year for age 40-50 and once every 2 years for >50 years" = 
+                                                    stage()$Senario6,
+                                                  NA  # Handle default case with NA
+    )
+    year2 = New_dignosed()$year2[8] * switch(input$Senerio,
+                                                  "40-70 once every  year"   = stage()$Senario1,
+                                                  "40-60 once every 2 years" = stage()$Senario2,
+                                                  "50-65 once every  year"   = stage()$Senario3,
+                                                  "50-65 once every 2 years" = stage()$Senario4,
+                                                  ">40 once every 2 years"   = stage()$Senario5,
+                                                  "once per one year for age 40-50 and once every 2 years for >50 years" = 
+                                                    stage()$Senario6,
+                                                  NA  # Handle default case with NA
+    )
+    year3 = New_dignosed()$year3[8] * switch(input$Senerio,
+                                                  "40-70 once every  year"   = stage()$Senario1,
+                                                  "40-60 once every 2 years" = stage()$Senario2,
+                                                  "50-65 once every  year"   = stage()$Senario3,
+                                                  "50-65 once every 2 years" = stage()$Senario4,
+                                                  ">40 once every 2 years"   = stage()$Senario5,
+                                                  "once per one year for age 40-50 and once every 2 years for >50 years" = 
+                                                    stage()$Senario6,
+                                                  NA  # Handle default case with NA
+    )
+    year4 = New_dignosed()$year4[8] * switch(input$Senerio,
+                                                  "40-70 once every  year"   = stage()$Senario1,
+                                                  "40-60 once every 2 years" = stage()$Senario2,
+                                                  "50-65 once every  year"   = stage()$Senario3,
+                                                  "50-65 once every 2 years" = stage()$Senario4,
+                                                  ">40 once every 2 years"   = stage()$Senario5,
+                                                  "once per one year for age 40-50 and once every 2 years for >50 years" = 
+                                                    stage()$Senario6,
+                                                  NA  # Handle default case with NA
+    )
+    year5 = New_dignosed()$year5[8] * switch(input$Senerio,
+                                                  "40-70 once every  year"   = stage()$Senario1,
+                                                  "40-60 once every 2 years" = stage()$Senario2,
+                                                  "50-65 once every  year"   = stage()$Senario3,
+                                                  "50-65 once every 2 years" = stage()$Senario4,
+                                                  ">40 once every 2 years"   = stage()$Senario5,
+                                                  "once per one year for age 40-50 and once every 2 years for >50 years" = 
+                                                    stage()$Senario6,
+                                                  NA  # Handle default case with NA
+    )
+    
+    data.frame(
+      stage()$Scenarios,
+      year1,
+      year2,
+      year3,
+      year4,
+      year5
+    )  
+    
+  })
+  
+
+###  Cost of treating Cancer
+  
+  screening_cost<- reactive({
+    data.frame(
+      iteam=c("initial screaning cost","Additional view cost","Additional MRI cost","Additional biopsy cost"),
+      Cost=c(input$Screening,(input$`Additional diagnostic mammogram `+input$`Additional ultrasound`+input$`Mammogram review`)*input$`%of patient need additional diagnosis`
+             ,(input$MRI+input$`MRI breast review`)*input$`%of patient needs MRI`,input$biopsy*input$`%of patient needs biopsy`)
+    )
+  })
+  
+  #screening Cost base Case
+  
+  screening_cost_year <- reactive({
+    screening_cost_df <- screening_cost()
+    bassens_data_df <- bassens_data()
+    
+    data.frame(
+      iteam = screening_cost_df$iteam,
+      year1 = screening_cost_df$Cost * bassens_data_df$year1,
+      year2 = screening_cost_df$Cost * bassens_data_df$year2,
+      year3 = screening_cost_df$Cost * bassens_data_df$year3,
+      year4 = screening_cost_df$Cost * bassens_data_df$year4,
+      year5 = screening_cost_df$Cost * bassens_data_df$year5
+    )
+  })
+
+  #Screening Cost for each scenario
+  
+  screening_cost_year_new <- reactive({
+    screening_cost_df <- screening_cost()
+    firsens1_data_df <- firsens_data()
+    secsens1_data_df <- secsens_data()
+    thisens1_data_df <- thisens_data()
+    forsens1_data_df <- forsens_data()
+    fifsens1_data_df <- fifsens_data()
+    sixsens1_data_df <- sixsens_data()
+    
+    data.frame(
+      iteam = screening_cost_df$iteam,
+      year1 = screening_cost_df$Cost * switch(input$Senerio,
+                                              "40-70 once every  year" = firsens1_data_df$year1,
+                                              "40-60 once every 2 years" = secsens1_data_df$year1,
+                                              "50-65 once every  year" = thisens1_data_df$year1,
+                                              "50-65 once every 2 years" = forsens1_data_df$year1,
+                                              ">40 once every 2 years" = fifsens1_data_df$year1,
+                                              "once per one year for age 40-50 and once every 2 years for >50 years" = sixsens1_data_df$year1,
+                                              NA  # Handle default case with NA
+      ),
+      year2 = screening_cost_df$Cost * switch(input$Senerio,
+                                              "40-70 once every  year" = firsens1_data_df$year2,
+                                              "40-60 once every 2 years" = secsens1_data_df$year2,
+                                              "50-65 once every  year" = thisens1_data_df$year2,
+                                              "50-65 once every 2 years" = forsens1_data_df$year2,
+                                              ">40 once every 2 years" = fifsens1_data_df$year2,
+                                              "once per one year for age 40-50 and once every 2 years for >50 years" = sixsens1_data_df$year2,
+                                              NA  # Handle default case with NA
+      ),
+      year3 = screening_cost_df$Cost * switch(input$Senerio,
+                                              "40-70 once every  year" = firsens1_data_df$year3,
+                                              "40-60 once every 2 years" = secsens1_data_df$year3,
+                                              "50-65 once every  year" = thisens1_data_df$year3,
+                                              "50-65 once every 2 years" = forsens1_data_df$year3,
+                                              ">40 once every 2 years" = fifsens1_data_df$year3,
+                                              "once per one year for age 40-50 and once every 2 years for >50 years" = sixsens1_data_df$year3,
+                                              NA  # Handle default case with NA
+      ),
+      year4 = screening_cost_df$Cost * switch(input$Senerio,
+                                              "40-70 once every  year" = firsens1_data_df$year4,
+                                              "40-60 once every 2 years" = secsens1_data_df$year4,
+                                              "50-65 once every  year" = thisens1_data_df$year4,
+                                              "50-65 once every 2 years" = forsens1_data_df$year4,
+                                              ">40 once every 2 years" = fifsens1_data_df$year4,
+                                              "once per one year for age 40-50 and once every 2 years for >50 years" = sixsens1_data_df$year4,
+                                              NA  # Handle default case with NA
+      ),
+      year5 = screening_cost_df$Cost * switch(input$Senerio,
+                                              "40-70 once every  year" = firsens1_data_df$year5,
+                                              "40-60 once every 2 years" = secsens1_data_df$year5,
+                                              "50-65 once every  year" = thisens1_data_df$year5,
+                                              "50-65 once every 2 years" = forsens1_data_df$year5,
+                                              ">40 once every 2 years" = fifsens1_data_df$year5,
+                                              "once per one year for age 40-50 and once every 2 years for >50 years" = sixsens1_data_df$year5,
+                                              NA  # Handle default case with NA
+      )
+    )
+  })
+  
+
+  
+  ### Current Cost of treating cancer Per Stage
+  
+  initial_treatment_cost<-reactive({
+    
+    year1 = c(curent_stage()$year1[1]* input$`Treatment of Stage zero DCIS`,curent_stage()$year1[2]* input$`Treatment of Stage I`,
+              curent_stage()$year1[3]* input$`Treatment of Stage II`,curent_stage()$year1[4]* input$`Treatment of Stage III`,
+              curent_stage()$year1[5]* input$`Treatment of Stage IV`)
+    
+    year2 = c(curent_stage()$year2[1]* input$`Treatment of Stage zero DCIS`,curent_stage()$year2[2]* input$`Treatment of Stage I`,
+              curent_stage()$year2[3]* input$`Treatment of Stage II`,curent_stage()$year2[4]* input$`Treatment of Stage III`,
+              curent_stage()$year2[5]* input$`Treatment of Stage IV`)
+    
+    year3 = c(curent_stage()$year3[1]* input$`Treatment of Stage zero DCIS`,curent_stage()$year3[2]* input$`Treatment of Stage I`,
+              curent_stage()$year3[3]* input$`Treatment of Stage II`,curent_stage()$year3[4]* input$`Treatment of Stage III`,
+              curent_stage()$year3[5]* input$`Treatment of Stage IV`)
+    
+    year4 = c(curent_stage()$year4[1]* input$`Treatment of Stage zero DCIS`,curent_stage()$year4[2]* input$`Treatment of Stage I`,
+              curent_stage()$year4[3]* input$`Treatment of Stage II`,curent_stage()$year4[4]* input$`Treatment of Stage III`,
+              curent_stage()$year4[5]* input$`Treatment of Stage IV`)
+    
+    year5 = c(curent_stage()$year5[1]* input$`Treatment of Stage zero DCIS`,curent_stage()$year5[2]* input$`Treatment of Stage I`,
+              curent_stage()$year5[3]* input$`Treatment of Stage II`,curent_stage()$year5[4]* input$`Treatment of Stage III`,
+              curent_stage()$year5[5]* input$`Treatment of Stage IV`)
+    
+  
+    data.frame(
+      Scenarios=c("zero DCIS","Stage I","Stage II","Stage III","Stage IV"),
+      year1,
+      year2,
+      year3,
+      year4,
+      year5
+    )
+  })
+  
+  ### New Cost of treating cancer Per Stage
+  
+  new_treatment_cost<-reactive({
+    
+    year1 = c(new_stage()$year1[1]* input$`Treatment of Stage zero DCIS`,new_stage()$year1[2]* input$`Treatment of Stage I`,
+              new_stage()$year1[3]* input$`Treatment of Stage II`,new_stage()$year1[4]* input$`Treatment of Stage III`,
+              new_stage()$year1[5]* input$`Treatment of Stage IV`)
+    
+    year2 = c(new_stage()$year2[1]* input$`Treatment of Stage zero DCIS`,new_stage()$year2[2]* input$`Treatment of Stage I`,
+              new_stage()$year2[3]* input$`Treatment of Stage II`,new_stage()$year2[4]* input$`Treatment of Stage III`,
+              new_stage()$year2[5]* input$`Treatment of Stage IV`)
+    
+    year3 = c(new_stage()$year3[1]* input$`Treatment of Stage zero DCIS`,new_stage()$year3[2]* input$`Treatment of Stage I`,
+              new_stage()$year3[3]* input$`Treatment of Stage II`,new_stage()$year3[4]* input$`Treatment of Stage III`,
+              new_stage()$year3[5]* input$`Treatment of Stage IV`)
+    
+    year4 = c(new_stage()$year4[1]* input$`Treatment of Stage zero DCIS`,new_stage()$year4[2]* input$`Treatment of Stage I`,
+              new_stage()$year4[3]* input$`Treatment of Stage II`,new_stage()$year4[4]* input$`Treatment of Stage III`,
+              new_stage()$year4[5]* input$`Treatment of Stage IV`)
+    
+    year5 = c(new_stage()$year5[1]* input$`Treatment of Stage zero DCIS`,new_stage()$year5[2]* input$`Treatment of Stage I`,
+              new_stage()$year5[3]* input$`Treatment of Stage II`,new_stage()$year5[4]* input$`Treatment of Stage III`,
+              new_stage()$year5[5]* input$`Treatment of Stage IV`)
+    
+    
+    data.frame(
+      Scenarios=c("zero DCIS","Stage I","Stage II","Stage III","Stage IV"),
+      year1,
+      year2,
+      year3,
+      year4,
+      year5
+    )
+  })
+  
+  ### survival rate
+  
+  rate<-reactive({
+    
+    rate_df<- c(-log(input$`Stage zero DCIS`)/5,-log(input$`Stage I`)/5,
+                -log(input$`Stage II`)/5,       -log(input$`Stage III`)/5,
+                -log(input$`Stage IV`)/5
+              )
+
+  
+  
+  data.frame(
+    rate_df
+  )
+  
+  })
+  
+  probability_of_deth<- reactive({
+    
+
+    year2<- c(exp(-1*(rate()$rate_df[1])),exp(-1*(rate()$rate_df[2])),exp(-1*(rate()$rate_df[3])),
+                 exp(-1*(rate()$rate_df[4])),exp(-1*(rate()$rate_df[5])))
+    
+    year3<- c(exp(-2*(rate()$rate_df[1])),exp(-2*(rate()$rate_df[2])),exp(-2*(rate()$rate_df[3])),
+              exp(-2*(rate()$rate_df[4])),exp(-2*(rate()$rate_df[5])))
+    
+    year4<- c(exp(-3*(rate()$rate_df[1])),exp(-3*(rate()$rate_df[2])),exp(-3*(rate()$rate_df[3])),
+              exp(-3*(rate()$rate_df[4])),exp(-3*(rate()$rate_df[5])))
+    
+    year5<- c(exp(-4*(rate()$rate_df[1])),exp(-4*(rate()$rate_df[2])),exp(-4*(rate()$rate_df[3])),
+              exp(-4*(rate()$rate_df[4])),exp(-4*(rate()$rate_df[5])))
+    
+    data.frame(
+      Scenarios=c("zero DCIS","Stage I","Stage II","Stage III","Stage IV"),
+      year2,
+      year3,
+      year4,
+      year5
+    )
+    
+    
+  })
+  
+  ### Matrix of alive patients current strategy
+  
+  matrx_old <- reactive({
+    
+    year2 <-c(probability_of_deth()$year2*curent_stage()$year1,rep(NA,15))
+    year3 <-c(probability_of_deth()$year2*curent_stage()$year2,probability_of_deth()$year3*curent_stage()$year1,rep(NA,10))
+    year4 <-c(probability_of_deth()$year2*curent_stage()$year3,probability_of_deth()$year3*curent_stage()$year2,probability_of_deth()$year4*curent_stage()$year1,rep(NA,5))
+    year5 <-c(probability_of_deth()$year2*curent_stage()$year4,probability_of_deth()$year3*curent_stage()$year3,probability_of_deth()$year4*curent_stage()$year2,
+              probability_of_deth()$year5*curent_stage()$year1)
+    
+    data.frame(
+      year2,
+      year3,
+      year4,
+      year5
+      
+    )
+  })
+  
+  ### Matrix of alive patients new strategy
+  
+  matrx <- reactive({
+    
+    year2 <-c(probability_of_deth()$year2*new_stage()$year1,rep(NA,15))
+    year3 <-c(probability_of_deth()$year2*new_stage()$year2,probability_of_deth()$year3*new_stage()$year1,rep(NA,10))
+    year4 <-c(probability_of_deth()$year2*new_stage()$year3,probability_of_deth()$year3*new_stage()$year2,probability_of_deth()$year4*new_stage()$year1,rep(NA,5))
+    year5 <-c(probability_of_deth()$year2*new_stage()$year4,probability_of_deth()$year3*new_stage()$year3,probability_of_deth()$year4*new_stage()$year2,
+              probability_of_deth()$year5*new_stage()$year1)
+    
+    data.frame(
+      year2,
+      year3,
+      year4,
+      year5
+      
+    )
+  })
+  
+  
+  
+  ###Cost of treating cancer follow-up Per Stage
+  
+  
+  ### new Cost of treating cancer follow-up Per Stage 
+  
+  Follow_cost_new<-reactive({
+    
+    year2<- c(matrx()$year2[1] * input$`follow Stage zero DCIS`, matrx()$year2[2] * input$`follow Stage I`,
+              matrx()$year2[3] * input$`follow Stage II`,      matrx()$year2[4] * input$`follow Stage III`,
+              matrx()$year2[5] * input$`follow Stage IV`)
+    
+    year3<-c(sum(matrx()$year3[c(1,6)]) * input$`follow Stage zero DCIS`, sum(matrx()$year3[c(2,7)] * input$`follow Stage I`),
+             sum(matrx()$year3[c(3,8)]) * input$`follow Stage II`,      sum(matrx()$year3[c(4,9)]) * input$`follow Stage III`,
+             sum(matrx()$year3[c(5,10)]) * input$`follow Stage IV`)
+    
+    year4<-c(sum(matrx()$year4[c(1,6,11)]) * input$`follow Stage zero DCIS`, sum(matrx()$year4[c(2,7,12)] * input$`follow Stage I`),
+             sum(matrx()$year4[c(3,8,13)]) * input$`follow Stage II`,      sum(matrx()$year4[c(4,9,14)]) * input$`follow Stage III`,
+             sum(matrx()$year4[c(5,10,15)]) * input$`follow Stage IV`)
+    
+    year5<-c(sum(matrx()$year5[c(1,6,11,16)]) * input$`follow Stage zero DCIS`, sum(matrx()$year5[c(2,7,12,17)] * input$`follow Stage I`),
+             sum(matrx()$year5[c(3,8,13,18)]) * input$`follow Stage II`,      sum(matrx()$year5[c(4,9,14,19)]) * input$`follow Stage III`,
+             sum(matrx()$year5[c(5,10,15,20)]) * input$`follow Stage IV`)
+      
+ 
+    
+    data.frame(
+      Stages=c("zero DCIS","Stage I","Stage II","Stage III","Stage IV"),
+      year2,
+      year3,
+      year4,
+      year5
+
+
+    )
+  })
+  
+  
+  
+  ### current Cost of treating cancer follow-up Per Stage
+  
+  Follow_cost<-reactive({
+    
+    year2<- c(matrx_old()$year2[1] * input$`follow Stage zero DCIS`, matrx_old()$year2[2] * input$`follow Stage I`,
+              matrx_old()$year2[3] * input$`follow Stage II`,      matrx_old()$year2[4] * input$`follow Stage III`,
+              matrx_old()$year2[5] * input$`follow Stage IV`)
+    
+    year3<-c(sum(matrx_old()$year3[c(1,6)]) * input$`follow Stage zero DCIS`, sum(matrx_old()$year3[c(2,7)] * input$`follow Stage I`),
+             sum(matrx_old()$year3[c(3,8)]) * input$`follow Stage II`,      sum(matrx_old()$year3[c(4,9)]) * input$`follow Stage III`,
+             sum(matrx_old()$year3[c(5,10)]) * input$`follow Stage IV`)
+    
+    year4<-c(sum(matrx_old()$year4[c(1,6,11)]) * input$`follow Stage zero DCIS`, sum(matrx_old()$year4[c(2,7,12)] * input$`follow Stage I`),
+             sum(matrx_old()$year4[c(3,8,13)]) * input$`follow Stage II`,      sum(matrx_old()$year4[c(4,9,14)]) * input$`follow Stage III`,
+             sum(matrx_old()$year4[c(5,10,15)]) * input$`follow Stage IV`)
+    
+    year5<-c(sum(matrx_old()$year5[c(1,6,11,16)]) * input$`follow Stage zero DCIS`, sum(matrx_old()$year5[c(2,7,12,17)] * input$`follow Stage I`),
+             sum(matrx_old()$year5[c(3,8,13,18)]) * input$`follow Stage II`,      sum(matrx_old()$year5[c(4,9,14,19)]) * input$`follow Stage III`,
+             sum(matrx_old()$year5[c(5,10,15,20)]) * input$`follow Stage IV`)
+    
+    
+    
+    data.frame(
+      Stages=c("zero DCIS","Stage I","Stage II","Stage III","Stage IV"),
+      year2,
+      year3,
+      year4,
+      year5
+      
+      
+    )
+  }) 
+  
+  
+  ####  distribution of stages in cancer of jordan
+  distcan<-reactive({
+    
+   data.frame(
+    stage = c('zero DCIS', 'Stage I', 'Stage II', 'Stage III', 'Stage IV'),
+    stageDistribution = c(0.062340967, 0.139949109, 0.376590331, 0.208651399, 0.212468193)
+  )  
+  })
+  
+  
+  ### total cost of treating breast cancer old
+  
+  candist<-reactive({
+    
+    
+    year1 <- c(0.062340967, 0.139949109, 0.376590331, 0.208651399, 0.212468193) * input$BCCPY
+    year2 <- c(0.062340967, 0.139949109, 0.376590331, 0.208651399, 0.212468193) * input$BCCPY* (1 + input$`Population growth per year`)
+    year3 <- c(0.062340967, 0.139949109, 0.376590331, 0.208651399, 0.212468193) * input$BCCPY* (1 + input$`Population growth per year`)^2
+    year4 <- c(0.062340967, 0.139949109, 0.376590331, 0.208651399, 0.212468193) * input$BCCPY* (1 + input$`Population growth per year`)^3
+    year5 <- c(0.062340967, 0.139949109, 0.376590331, 0.208651399, 0.212468193) * input$BCCPY* (1 + input$`Population growth per year`)^4
+    
+    totalcaseold <- data.frame(
+      year1,
+      year2,
+      year3,
+      year4,
+      year5
+    )
+    
+  })
+  
+  ####New cancer cases Directly diagnosed new scenarios
+  
+  candistnew<-reactive({
+    
+    year1<- distcan()$stageDistribution*(input$BCCPY-sum(new_stage()$year1,na.rm = TRUE))+new_stage()$year1
+    year2<- distcan()$stageDistribution*(input$BCCPY* (1 + input$`Population growth per year`)-sum(new_stage()$year2,na.rm = TRUE))+new_stage()$year2
+    year3<- distcan()$stageDistribution*(input$BCCPY* (1 + input$`Population growth per year`)^2-sum(new_stage()$year3,na.rm = TRUE))+new_stage()$year3
+    year4<- distcan()$stageDistribution*(input$BCCPY* (1 + input$`Population growth per year`)^3-sum(new_stage()$year4,na.rm = TRUE))+new_stage()$year4
+    year5<- distcan()$stageDistribution*(input$BCCPY* (1 + input$`Population growth per year`)^4-sum(new_stage()$year5,na.rm = TRUE))+new_stage()$year5
+    
+    data.frame(
+      year1,
+      year2,
+      year3,
+      year4,
+      year5
+    )
+    
+  })
+  
+  
+  ### Matrix of alive patients current strategy total
+  
+  matrx_old_total <- reactive({
+    
+    year2 <-c(probability_of_deth()$year2*candist()$year1,rep(NA,15))
+    year3 <-c(probability_of_deth()$year2*candist()$year2,probability_of_deth()$year3*candist()$year1,rep(NA,10))
+    year4 <-c(probability_of_deth()$year2*candist()$year3,probability_of_deth()$year3*candist()$year2,probability_of_deth()$year4*candist()$year1,rep(NA,5))
+    year5 <-c(probability_of_deth()$year2*candist()$year4,probability_of_deth()$year3*candist()$year3,probability_of_deth()$year4*candist()$year2,
+              probability_of_deth()$year5*candist()$year1)
+    
+    data.frame(
+      year2,
+      year3,
+      year4,
+      year5
+      
+    )
+  })
+  
+  ### Matrix of alive patients new strategy total
+  
+  matrx_total <- reactive({
+    
+    year2 <-c(probability_of_deth()$year2*candistnew()$year1,rep(NA,15))
+    year3 <-c(probability_of_deth()$year2*candistnew()$year2,probability_of_deth()$year3*candistnew()$year1,rep(NA,10))
+    year4 <-c(probability_of_deth()$year2*candistnew()$year3,probability_of_deth()$year3*candistnew()$year2,probability_of_deth()$year4*candistnew()$year1,rep(NA,5))
+    year5 <-c(probability_of_deth()$year2*candistnew()$year4,probability_of_deth()$year3*candistnew()$year3,probability_of_deth()$year4*candistnew()$year2,
+              probability_of_deth()$year5*candistnew()$year1)
+    
+    data.frame(
+      year2,
+      year3,
+      year4,
+      year5
+      
+    )
+  })
+  
+  
+  
+  ###Cost of treating cancer follow-up Per Stage
+  
+  
+  ### new Cost of treating cancer follow-up Per Stage total
+  
+  Follow_cost_new_total<-reactive({
+    
+    year2<- c(matrx_old_total()$year2[1] * input$`follow Stage zero DCIS`, matrx_old_total()$year2[2] * input$`follow Stage I`,
+              matrx_old_total()$year2[3] * input$`follow Stage II`,      matrx_old_total()$year2[4] * input$`follow Stage III`,
+              matrx_old_total()$year2[5] * input$`follow Stage IV`)
+    
+    year3<-c(sum(matrx_old_total()$year3[c(1,6)]) * input$`follow Stage zero DCIS`, sum(matrx_old_total()$year3[c(2,7)] * input$`follow Stage I`),
+             sum(matrx_old_total()$year3[c(3,8)]) * input$`follow Stage II`,      sum(matrx_old_total()$year3[c(4,9)]) * input$`follow Stage III`,
+             sum(matrx_old_total()$year3[c(5,10)]) * input$`follow Stage IV`)
+    
+    year4<-c(sum(matrx_old_total()$year4[c(1,6,11)]) * input$`follow Stage zero DCIS`, sum(matrx_old_total()$year4[c(2,7,12)] * input$`follow Stage I`),
+             sum(matrx_old_total()$year4[c(3,8,13)]) * input$`follow Stage II`,      sum(matrx_old_total()$year4[c(4,9,14)]) * input$`follow Stage III`,
+             sum(matrx_old_total()$year4[c(5,10,15)]) * input$`follow Stage IV`)
+    
+    year5<-c(sum(matrx_old_total()$year5[c(1,6,11,16)]) * input$`follow Stage zero DCIS`, sum(matrx_old_total()$year5[c(2,7,12,17)] * input$`follow Stage I`),
+             sum(matrx_old_total()$year5[c(3,8,13,18)]) * input$`follow Stage II`,      sum(matrx_old_total()$year5[c(4,9,14,19)]) * input$`follow Stage III`,
+             sum(matrx_old_total()$year5[c(5,10,15,20)]) * input$`follow Stage IV`)
+    
+    
+    
+    data.frame(
+      year2,
+      year3,
+      year4,
+      year5
+      
+      
+    )
+  })
+  
+  
+  
+  ### current Cost of treating cancer follow-up Per Stage total
+  
+  Follow_cost_total<-reactive({
+    
+    year2<- c(matrx_old()$year2[1] * input$`follow Stage zero DCIS`, matrx_old()$year2[2] * input$`follow Stage I`,
+              matrx_old()$year2[3] * input$`follow Stage II`,      matrx_old()$year2[4] * input$`follow Stage III`,
+              matrx_old()$year2[5] * input$`follow Stage IV`)
+    
+    year3<-c(sum(matrx_old()$year3[c(1,6)]) * input$`follow Stage zero DCIS`, sum(matrx_old()$year3[c(2,7)] * input$`follow Stage I`),
+             sum(matrx_old()$year3[c(3,8)]) * input$`follow Stage II`,      sum(matrx_old()$year3[c(4,9)]) * input$`follow Stage III`,
+             sum(matrx_old()$year3[c(5,10)]) * input$`follow Stage IV`)
+    
+    year4<-c(sum(matrx_old()$year4[c(1,6,11)]) * input$`follow Stage zero DCIS`, sum(matrx_old()$year4[c(2,7,12)] * input$`follow Stage I`),
+             sum(matrx_old()$year4[c(3,8,13)]) * input$`follow Stage II`,      sum(matrx_old()$year4[c(4,9,14)]) * input$`follow Stage III`,
+             sum(matrx_old()$year4[c(5,10,15)]) * input$`follow Stage IV`)
+    
+    year5<-c(sum(matrx_old()$year5[c(1,6,11,16)]) * input$`follow Stage zero DCIS`, sum(matrx_old()$year5[c(2,7,12,17)] * input$`follow Stage I`),
+             sum(matrx_old()$year5[c(3,8,13,18)]) * input$`follow Stage II`,      sum(matrx_old()$year5[c(4,9,14,19)]) * input$`follow Stage III`,
+             sum(matrx_old()$year5[c(5,10,15,20)]) * input$`follow Stage IV`)
+    
+    
+    
+    data.frame(
+      year2,
+      year3,
+      year4,
+      year5
+      
+      
+    )
+  }) 
+  
+  #treatment Cost base Case total 
+  
+  initial_treatment_cost_total<-reactive({
+    
+    year1 = c(candist()$year1[1]* input$`Treatment of Stage zero DCIS`,candist()$year1[2]* input$`Treatment of Stage I`,
+              candist()$year1[3]* input$`Treatment of Stage II`,candist()$year1[4]* input$`Treatment of Stage III`,
+              candist()$year1[5]* input$`Treatment of Stage IV`)
+    
+    year2 = c(candist()$year2[1]* input$`Treatment of Stage zero DCIS`,candist()$year2[2]* input$`Treatment of Stage I`,
+              candist()$year2[3]* input$`Treatment of Stage II`,candist()$year2[4]* input$`Treatment of Stage III`,
+              candist()$year2[5]* input$`Treatment of Stage IV`)
+    
+    year3 = c(candist()$year3[1]* input$`Treatment of Stage zero DCIS`,candist()$year3[2]* input$`Treatment of Stage I`,
+              candist()$year3[3]* input$`Treatment of Stage II`,candist()$year3[4]* input$`Treatment of Stage III`,
+              candist()$year3[5]* input$`Treatment of Stage IV`)
+    
+    year4 = c(candist()$year4[1]* input$`Treatment of Stage zero DCIS`,candist()$year4[2]* input$`Treatment of Stage I`,
+              candist()$year4[3]* input$`Treatment of Stage II`,candist()$year4[4]* input$`Treatment of Stage III`,
+              candist()$year4[5]* input$`Treatment of Stage IV`)
+    
+    year5 = c(candist()$year5[1]* input$`Treatment of Stage zero DCIS`,candist()$year5[2]* input$`Treatment of Stage I`,
+              candist()$year5[3]* input$`Treatment of Stage II`,candist()$year5[4]* input$`Treatment of Stage III`,
+              candist()$year5[5]* input$`Treatment of Stage IV`)
+    
+    
+    data.frame(
+     Stages=c("zero DCIS","Stage I","Stage II","Stage III","Stage IV"),
+      year1,
+      year2=year2+Follow_cost_total()$year2,
+      year3=year3+Follow_cost_total()$year3,
+      year4=year4+Follow_cost_total()$year4,
+      year5=year5+Follow_cost_total()$year5
+    )
+  })
+  
+    #treatment Cost New Case total 
+  
+  initial_treatment_cost_total_new<-reactive({
+    
+    year1 = c(candistnew()$year1[1]* input$`Treatment of Stage zero DCIS`,candistnew()$year1[2]* input$`Treatment of Stage I`,
+              candistnew()$year1[3]* input$`Treatment of Stage II`,candistnew()$year1[4]* input$`Treatment of Stage III`,
+              candistnew()$year1[5]* input$`Treatment of Stage IV`)
+    
+    year2 = c(candistnew()$year2[1]* input$`Treatment of Stage zero DCIS`,candistnew()$year2[2]* input$`Treatment of Stage I`,
+              candistnew()$year2[3]* input$`Treatment of Stage II`,candistnew()$year2[4]* input$`Treatment of Stage III`,
+              candistnew()$year2[5]* input$`Treatment of Stage IV`)
+    
+    year3 = c(candistnew()$year3[1]* input$`Treatment of Stage zero DCIS`,candistnew()$year3[2]* input$`Treatment of Stage I`,
+              candistnew()$year3[3]* input$`Treatment of Stage II`,candistnew()$year3[4]* input$`Treatment of Stage III`,
+              candistnew()$year3[5]* input$`Treatment of Stage IV`)
+    
+    year4 = c(candistnew()$year4[1]* input$`Treatment of Stage zero DCIS`,candistnew()$year4[2]* input$`Treatment of Stage I`,
+              candistnew()$year4[3]* input$`Treatment of Stage II`,candistnew()$year4[4]* input$`Treatment of Stage III`,
+              candistnew()$year4[5]* input$`Treatment of Stage IV`)
+    
+    year5 = c(candistnew()$year5[1]* input$`Treatment of Stage zero DCIS`,candistnew()$year5[2]* input$`Treatment of Stage I`,
+              candistnew()$year5[3]* input$`Treatment of Stage II`,candistnew()$year5[4]* input$`Treatment of Stage III`,
+              candistnew()$year5[5]* input$`Treatment of Stage IV`)
+    
+    
+    data.frame(
+     Stages=c("zero DCIS","Stage I","Stage II","Stage III","Stage IV"),
+      year1,
+      year2=year2+Follow_cost_new_total()$year2,
+      year3=year3+Follow_cost_new_total()$year3,
+      year4=year4+Follow_cost_new_total()$year4,
+      year5=year5+Follow_cost_new_total()$year5
+        )
+  })
+  
+  
+  ###############################################################################################################################################
+   
+  # Render the totpop data frame using renderTable
+  
+  ###output patients screened
+
+  output$eli_pop <- renderTable({
+    switch(input$Senerio,
+           "40-70 once every  year" = firsens_data(),
+           "40-60 once every 2 years" = secsens_data(),
+           "50-65 once every  year" = thisens_data(),
+           "50-65 once every 2 years" = forsens_data(),
+           ">40 once every 2 years" = fifsens_data(),
+           "once per one year for age 40-50 and once every 2 years for >50 years" = sixsens_data(),
+           NULL)  # Handle default case (NULL or another default value)
+  })
+  
+  ###output patients eligible for screening
+  
+  output$elii_pop <- renderTable({
+    switch(input$Senerio,
+           "40-70 once every  year" = firsen_data(),
+           "40-60 once every 2 years" = secsen_data(),
+           "50-65 once every  year" = thisen_data(),
+           "50-65 once every 2 years" = forsen_data(),
+           ">40 once every 2 years" = fifsen_data(),
+           "once per one year for age 40-50 and once every 2 years for >50 years" = sixsen_data(),
+           NULL)  # Handle default case (NULL or another default value)
+  })  
+  
+  ###current patient patient eli base case
+  
+  output$bassen_data<- renderTable({
+    bassen_data()
+  })
+  
+  ###current patient screand 
+  
+  output$bassens_data<- renderTable({
+    bassens_data()
+  })
+
+### Output of patients with cancer
+  
+  output$diagnosed_current <- renderTable({
+
+    diagnosed_current()
+  })
+  
+  ### new patients with caner 
+  
+  output$New_dignosed <- renderTable({
+    
+    New_dignosed()
+  })
+  
+  ### new case break down
+  
+  output$curent_stage<-renderTable({
+    
+    curent_stage()
+  })
+
+  output$new_stage<- renderTable({
+    
+    new_stage()
+  })
+  
+### new patients
+  
+  output$new<-renderTable({
+    
+    New_case()
+  })
+  
+  
+### probability_of_death
+  
+  output$probability_of_deth<-renderTable({
+    probability_of_deth()
+  })
+
+### output Cost
+  
+# base case cost
+  
+output$screening_cost_year<-renderTable({
+  
+  screening_cost_year()
+  
+})
+  
+  
+# cost for each scenario
+
+output$screening_cost_year_new1<-renderTable({
+  
+  screening_cost_year_new()
+  
+})
+
+# intial tretment cost current senerio
+
+output$initial_treatment_cost<-renderTable({
+  initial_treatment_cost()
+  
+})
+
+#new treatment cost
+
+output$new_treatment_cost<-renderTable({
+  
+  new_treatment_cost()
+})
+
+## treatment followup matrix
+
+output$matrx<- renderTable(
+  Follow_cost()
+)
+
+output$Follow_cost_new<- renderTable(
+  Follow_cost_new()
+)
+
+
+output$hist <- renderPlot({
+  screening_cost_year_long <- screening_cost_year() %>%
+    pivot_longer(cols = -iteam, names_to = "Year", values_to = "Cost")
+  
+  ggplot(screening_cost_year_long, aes(x = Year, y = Cost, fill = iteam)) +
+    geom_bar(stat = "identity", position = "stack") +
+    labs(x = "Year", y = "Cost", title = "Stacked Histogram of Costs by Year") +
+    scale_y_continuous(labels = scales::comma) +  # Applying y-axis label formatting
+    theme_minimal()
+})
+
+output$histnew <- renderPlot({
+  screening_cost_year_new_long <- screening_cost_year_new() %>%
+    pivot_longer(cols = -iteam, names_to = "Year", values_to = "Cost")
+  
+  ggplot(screening_cost_year_new_long, aes(x = Year, y = Cost, fill = iteam)) +
+    geom_bar(stat = "identity", position = "stack") +
+    labs(x = "Year", y = "Cost", title = "Stacked Histogram of Costs by Year") +
+    scale_y_continuous(labels = scales::comma) +  # Applying y-axis label formatting
+    theme_minimal()
+})
+
+# Combine plots using cowplot's plot_grid function
+
+output$histcomb <- renderPlot({
+
+screening_cost_year_data <- screening_cost_year() %>%
+  pivot_longer(cols = -iteam, names_to = "Year", values_to = "Cost")
+
+# Get data for the second histogram
+screening_cost_year_new_data <- screening_cost_year_new() %>%
+  pivot_longer(cols = -iteam, names_to = "Year", values_to = "Cost")
+
+# Combine the data frames
+combined_data <- bind_rows(
+  screening_cost_year_data %>% mutate(Data = "Current scenario"),
+  screening_cost_year_new_data %>% mutate(Data = "New scenario")
+)
+
+# Create the combined histogram plot
+ggplot(combined_data, aes(x = Year, y = Cost, fill = iteam)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(x = "Year", y = "Cost", title = "Screening Costs by Year") +
+  scale_y_continuous(labels = scales::comma) +
+  theme_minimal() +
+  facet_wrap(~ Data) 
+
+})
+
+output$candist<-renderTable({
+  initial_treatment_cost_total()
+})
+  
+output$candistnew<-renderTable({
+  initial_treatment_cost_total_new()
+})
+
+output$histcandist <- renderPlot({
+
+  candist_long <- initial_treatment_cost_total() %>%
+    pivot_longer(cols = -Stages, names_to = "Year", values_to = "Cost")
+  
+  
+  ggplot(candist_long, aes(x = Year, y = Cost, fill = Stages)) +
+    geom_bar(stat = "identity", position = "stack") +
+    labs(x = "Year", y = "Cost", title = "Stacked Histogram of Costs by Year") +
+    scale_y_continuous(labels = scales::comma) +  # Applying y-axis label formatting
+    theme_minimal()
+})
+
+output$histcandist_new <- renderPlot({
+  
+  candist_new_long <- initial_treatment_cost_total_new() %>%
+    pivot_longer(cols = -Stages, names_to = "Year", values_to = "Cost")
+  
+  
+  ggplot(candist_new_long, aes(x = Year, y = Cost, fill = Stages)) +
+    geom_bar(stat = "identity", position = "stack") +
+    labs(x = "Year", y = "Cost", title = "Stacked Histogram of Costs by Year") +
+    scale_y_continuous(labels = scales::comma) +  # Applying y-axis label formatting
+    theme_minimal()
+})
+
+# Combine plots using cowplot's plot_grid function
+
+output$total <- renderPlot({
+  
+  candist_long <- initial_treatment_cost_total() %>%
+    pivot_longer(cols = -Stages, names_to = "Year", values_to = "Cost")
+  
+  # Get data for the second histogram
+  candist_new_long <- initial_treatment_cost_total_new() %>%
+    pivot_longer(cols = -Stages, names_to = "Year", values_to = "Cost")
+  
+  # Combine the data frames
+  combined_data <- bind_rows(
+    candist_long %>% mutate(Data = "Current scenario"),
+    candist_new_long %>% mutate(Data = "New scenario")
+  )
+  
+  # Create the combined histogram plot
+  ggplot(combined_data, aes(x = Year, y = Cost, fill = Stages)) +
+    geom_bar(stat = "identity", position = "stack") +
+    labs(x = "Year", y = "Cost", title = "Costs of treating All Breast cancer patients") +
+    scale_y_continuous(labels = scales::comma) +
+    theme_minimal() +
+    facet_wrap(~ Data) 
+  
+})
+
+}
+
+
+
+# Create Shiny object
+shinyApp(ui = ui, server = server) 
