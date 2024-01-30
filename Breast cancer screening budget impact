@@ -18,11 +18,11 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                                            c("40-70 once every  year", "40-60 once every 2 years", "50-65 once every  year",
                                              "50-65 once every 2 years",">40 once every 2 years","once per one year for age 40-50 and once every 2 years for >50 years"))
                             ,numericInput("Population growth per year", "Population growth per year:", 0.022,.0001,1),
-                             numericInput("Invitation Rate", "Invitation Rate:", 1,.0001,1),
-                             numericInput("Penetration Rate","Penetration Rate:",0.5,.0001,1),
-                             numericInput("BCCPY","Breast cancer cases per year:",1644,0,16404),
-                             numericInput("Screening sensitivity","Screening sensitivity:",0.8,.0001,1),
-                             numericInput("Screening specificity","Screening specificity:",0.7,.0001,1),
+                             numericInput("Invitation Rate", "Invitation Rate:",.0001,1),
+                             numericInput("Penetration Rate","Penetration Rate:",.0001,1),
+                             numericInput("BCCPY","Breast cancer cases per year:",0,16404),
+                             numericInput("Screening sensitivity","Screening sensitivity:",.0001,1),
+                             numericInput("Screening specificity","Screening specificity:",.0001,1),
                              
                              tags$h3("Number of subjects per year:"),
                              
@@ -70,9 +70,9 @@ ui <- fluidPage(theme = shinytheme("cerulean"),
                             sidebarPanel(
                              tags$h3("Cost Input:"),width = 4,
                            
-                             numericInput("Screening","Screening:", 0,0,100000000),
+                             numericInput("Screening","Screening:", ,0,100000000),
                              numericInput("Additional diagnostic mammogram ","Additional diagnostic mammogram :",0,100000000),
-                             numericInput("Additional ultrasound","Additional ultrasound:",0,0,100000000),
+                             numericInput("Additional ultrasound","Additional ultrasound:",0,100000000),
                              numericInput("MRI","MRI:",0,.0001,),
                              numericInput("MRI breast review","MRI breast review:",0,0,100000000),
                              numericInput("Mammogram review","Mammogram review:",0,.0001,),
